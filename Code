@@ -1,23 +1,62 @@
+/* 
+
+
+   Sample SAS running in database with Teradata Vantage code
+
+
+
+*/
+
+
+
+
+/* 
+   turn on tracing options to show what will be submitted to database
+   as well as some additional timing options
+*/
 Options sastrace=',,,ds' sastraceloc=saslog nostsuffix;
+
+/*
+   push everything possible to Teradata Vantage
+   on by default
+*/   
 options dbidirectexec;
+
+/* variable holding connection information*/
 %let idconn = server=barbera user=pauls password='{SAS002}85D8C64D4474130111620633' mode=teradata;
+
+/* variable holding transaction table name
+   have this so we can switch data volumes
+   options are:
+      -txn_12m
+      -txn_6m
+      -txn_3m
+      -txn_1m
+      
+*/      
 %let txn_tbl=txn_12m;
 
 libname td_demo teradata server=barbera user=pauls 
 password='{SAS002}85D8C64D4474130111620633' database=demo_dev;
 
+/* have a look at the demographic record */
+
+proc print data=td_demo.cust_vw;
+where cid between 12368 and 12378;
+
+
+
 
 /*
 
 have a bunch of new customer information
-lets load it into Datalab
-when vp is set up
+lets load it into database
 
 */
 
 libname fs '/data/';
 
-/* 6s */
+
 
 data td_demo.new_customers (fastload=yes tpt=yes dbcommit=0);
 
@@ -54,6 +93,10 @@ run;
 we have 75 in common based on cid
 lets check to see if they really are duplicate records
 */
+
+/* first stack the potential duplicates with the original records
+   required for match code */
+
 proc sql;
 connect to teradata (server=barbera user=pauls 
 password='{SAS002}85D8C64D4474130111620633' mode=teradata);
@@ -216,12 +259,13 @@ run;
 
 
 /*
-now lets look at the transaction informatio
+now lets look at the transaction information
 */
 
 proc sql;
 select count(*) from td_demo.&txn_tbl;
 run;
+
 
 /* 3.6B rows in 12m*/
 
@@ -229,9 +273,15 @@ proc print data=td_demo.&txn_tbl;
 where txn_date between '12Dec2018'd and '14Dec2018'd and custid between 12368 and 12370;
 run;
 
+/* lets have a quick profile by channel*/
+
+proc freq data=td_demo.@&txn_tbl;
+tables channel;
+run;
+
 /*
 now lets roll this up to one row per customer per day
-Probably won't run this during demo as it takes 10+ minutes
+Probably won't run this during demo as it takes 7+ minutes
 execute.
 Don't drop the table, just start from next step
 */
@@ -289,7 +339,7 @@ run;
 /*
 now let roll up to customer level
 and calculate the totals of the counts and amounts
-by month
+by month by channel
 so end up with 1M rows
 */
      
@@ -354,8 +404,8 @@ proc ds2 ds2accel=yes ;
 
 	method run(); 
   	  set td_demo.txn_pvt_mnth;    /* read data in from txn_pvt_mnth table in TD */ 
-      by custid;              /* the role up level */
-  	  if first.custid then    /* for each new id clear out the arrays as these are reused */
+      by custid;                   /* the role up level */
+  	  if first.custid then         /* for each new id clear out the arrays as these are reused */
         clear_arrays(); 
         TX_c[mnth]=X_txn_c+TX_c[mnth];  /* for each month create the totals */
 		TT_c[mnth]=T_txn_c+TT_c[mnth];
@@ -385,8 +435,8 @@ proc ds2 ds2accel=yes ;
 
   /* Execute the DS2 we wrote above */
   data td_demo.txn_pvt_cust;         /* results are going into a teradata table*/
-    dcl thread p_thread p; /* instance of the thread */
-    method run();          /* call the run method we created above */
+    dcl thread p_thread p;           /* instance of the thread */
+    method run();                    /* call the run method we created above */
       set from p;
       output;
     end;
@@ -689,10 +739,6 @@ format TX_a1-TX_a12 txn_amt_band.;
 tables TX_a1-TX_a12 * gender;
 run;
 
-proc means data=td_demo.ads_prelim;
-class state;
-var TZ_a1-TZ_a12;
-run;
 
 /*
 lets see if there is any significant correlation
@@ -708,6 +754,9 @@ run;
 /* when using EP, indconn MUST have database defined, even if we overwrite it later*/
 
 %let indconn= server=barbera user=pauls password=pauls database=demo_dev;
+
+/*EM model 
+  read data -> HPCLUS (5 clusters)->Score ->Score Export
 
 /* publish SA code */
 %indtdpm;
