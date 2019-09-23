@@ -23,7 +23,7 @@ Options sastrace=',,,ds' sastraceloc=saslog nostsuffix;
 options dbidirectexec;
 
 /* variable holding connection information*/
-%let idconn = server=barbera user=pauls password='{SAS002}85D8C64D4474130111620633' mode=teradata;
+%let idconn = server=mytd user=pauls password=mypass mode=teradata;
 
 /* variable holding transaction table name
    have this so we can switch data volumes
@@ -36,8 +36,8 @@ options dbidirectexec;
 */      
 %let txn_tbl=txn_12m;
 
-libname td_demo teradata server=barbera user=pauls 
-password='{SAS002}85D8C64D4474130111620633' database=demo_dev;
+libname td_demo teradata server=mytd user=me
+password=mypass database=demo_dev;
 
 /* have a look at the demographic record */
 
@@ -66,8 +66,7 @@ run;
 /* check to see that they are actually new customers */
 
 proc sql;
-connect to teradata (server=barbera user=pauls 
-password='{SAS002}85D8C64D4474130111620633' mode=teradata);
+connect to teradata (&idconn);
 select * from connection to teradata
 (
 SELECT 1 AS "xidx", '#records     ' AS "xtable", "cust_vw", "new_customers" FROM
@@ -98,8 +97,7 @@ lets check to see if they really are duplicate records
    required for match code */
 
 proc sql;
-connect to teradata (server=barbera user=pauls 
-password='{SAS002}85D8C64D4474130111620633' mode=teradata);
+connect to teradata (&idconn);
 execute (create table demo_dev.dupe_customers as 
 (select 'd'||nc.cid as uid,nc.* from demo_dev.new_customers as nc 
 inner join 
@@ -134,8 +132,7 @@ check for name matches
 
 
 proc sql;
-connect to teradata (server=barbera user=pauls 
-password='{SAS002}85D8C64D4474130111620633' mode=teradata);
+connect to teradata (&idconn);
 execute (
 call sas_sysfnlib.dq_match
 ('Name', '100','demo_dev.dupe_customers', 'Fullname',
@@ -286,8 +283,7 @@ execute.
 Don't drop the table, just start from next step
 */
 proc sql;
-connect to teradata (server=barbera user=pauls 
-password='{SAS002}85D8C64D4474130111620633' mode=teradata);
+connect to teradata (&idconn);
 execute (create table demo_dev.txn_pvt as ( 
 select * from demo_dev.&txn_tbl pivot( sum(txn_count) as txn_c, sum(txn_amt) as txn_a
 for channel in (
@@ -712,7 +708,7 @@ other='extreme';
 run;
     
 /*needed for format publish macro */
-%let indconn=server=barbera user=pauls password=pauls database=demo_dev;
+%let indconn=server=mytd user=me password=mypass database=demo_dev;
 
 /* now publish this format to the database */
 
@@ -753,7 +749,7 @@ run;
 
 /* when using EP, indconn MUST have database defined, even if we overwrite it later*/
 
-%let indconn= server=barbera user=pauls password=pauls database=demo_dev;
+%let indconn= server=mytd user=me password=mypass database=demo_dev;
 
 /*EM model 
   read data -> HPCLUS (5 clusters)->Score ->Score Export
