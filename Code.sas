@@ -1,92 +1,57 @@
 ```SAS
 
-/* 
+/******************
 
-
-   Sample SAS running in database with Teradata Vantage code
-
-
-
-*/
-
-
-
-
-/* 
-   turn on tracing options to show what will be submitted to database
-   as well as some additional timing options
-*/
+   V 2.2 July 21 2021
+         Paul Segal
+         change explicit SQL to use connect using syntax
+         
+*******************/         
 Options sastrace=',,,ds' sastraceloc=saslog nostsuffix;
-
-/*
-   push everything possible to Teradata Vantage
-   on by default
-*/   
 options dbidirectexec;
-
-/* variable holding connection information*/
-%let idconn = server=mytd user=pauls password=mypass mode=teradata;
-
-/* variable holding transaction table name
-   have this so we can switch data volumes
-   options are:
-      -txn_12m
-      -txn_6m
-      -txn_3m
-      -txn_1m
-      
-*/      
+%let idconn = server=barbera user=sasdemo password='{SAS002}835DA5352D5AE01B196D396B1920462032A1731E' mode=teradata;
 %let txn_tbl=txn_12m;
 
-libname td_demo teradata server=mytd user=me
-password=mypass database=demo_dev;
-
-/* have a look at the demographic record */
-
-proc print data=td_demo.cust_vw;
-where cid between 12368 and 12378;
+libname td_demo teradata server=barbera user=sasdemo 
+password='{SAS002}835DA5352D5AE01B196D396B1920462032A1731E' database=demo_data mode=teradata;
 
 
+proc print data=td_demo.cust_vw (obs=10);
 
-
-/*
-
-have a bunch of new customer information
-lets load it into database
-
-*/
+run;
 
 libname fs '/data/';
 
 
+proc print data=fs.new_customers(obs=10);
+run;
 
 data td_demo.new_customers (fastload=yes tpt=yes dbcommit=0);
-
 set fs.new_customers;
 run;
 
 /* check to see that they are actually new customers */
 
 proc sql;
-connect to teradata (&idconn);
-select * from connection to teradata
+connect using td_demo as td;
+select * from connection to td
 (
 SELECT 1 AS "xidx", '#records     ' AS "xtable", "cust_vw", "new_customers" FROM
-	  (SELECT CAST(COUNT(*) AS FLOAT) AS "cust_vw" FROM "demo_dev"."cust_vw") T1
-	, (SELECT CAST(COUNT(*) AS FLOAT) AS "new_customers" FROM "demo_dev"."new_customers") T2
+	  (SELECT CAST(COUNT(*) AS FLOAT) AS "cust_vw" FROM "demo_data"."cust_vw") T1
+	, (SELECT CAST(COUNT(*) AS FLOAT) AS "new_customers" FROM "demo_data"."new_customers") T2
 UNION
 SELECT 2, '#uniques     ', "cust_vw", "new_customers" FROM
-	  (SELECT CAST(COUNT(DISTINCT "cid") AS FLOAT) AS "cust_vw" FROM "demo_dev"."cust_vw") T1
-	, (SELECT CAST(COUNT(DISTINCT "cid") AS FLOAT) AS "new_customers" FROM "demo_dev"."new_customers") T2
+	  (SELECT CAST(COUNT(DISTINCT "cid") AS FLOAT) AS "cust_vw" FROM "demo_data"."cust_vw") T1
+	, (SELECT CAST(COUNT(DISTINCT "cid") AS FLOAT) AS "new_customers" FROM "demo_data"."new_customers") T2
 UNION
 SELECT 3, 'cust_vw      ', NULL, "new_customers" FROM
 	 (SELECT CAST(COUNT(DISTINCT c1) AS FLOAT) AS "new_customers" FROM
-	  (SELECT DISTINCT "cid" AS c1 FROM "demo_dev"."cust_vw") A,
-	  (SELECT DISTINCT "cid" AS c2 FROM "demo_dev"."new_customers") B
+	  (SELECT DISTINCT "cid" AS c1 FROM "demo_data"."cust_vw") A,
+	  (SELECT DISTINCT "cid" AS c2 FROM "demo_data"."new_customers") B
 	WHERE c1 = c2) T2
 ORDER BY 1;
 );
-disconnect from teradata;
+disconnect from td;
 run;
 
 
@@ -94,23 +59,19 @@ run;
 we have 75 in common based on cid
 lets check to see if they really are duplicate records
 */
-
-/* first stack the potential duplicates with the original records
-   required for match code */
-
 proc sql;
-connect to teradata (&idconn);
-execute (create table demo_dev.dupe_customers as 
-(select 'd'||nc.cid as uid,nc.* from demo_dev.new_customers as nc 
+connect using td_demo as td;
+execute (create table demo_data.dupe_customers as 
+(select 'd'||nc.cid as uid,nc.* from demo_data.new_customers as nc 
 inner join 
-demo_dev.cust_vw as c
+demo_data.cust_vw as c
 on nc.cid=c.cid
 union all
-select 'o'|| c.cid as uid,c.* from demo_dev.new_customers as nc 
+select 'o'|| c.cid as uid,c.* from demo_data.new_customers as nc 
 inner join 
-demo_dev.cust_vw as c
-on nc.cid=c.cid) with data) by teradata;
-disconnect from teradata;
+demo_data.cust_vw as c
+on nc.cid=c.cid) with data) by td;
+disconnect from td;
 run;
 
 proc sql;
@@ -134,11 +95,11 @@ check for name matches
 
 
 proc sql;
-connect to teradata (&idconn);
+connect using td_demo as td;
 execute (
 call sas_sysfnlib.dq_match
-('Name', '100','demo_dev.dupe_customers', 'Fullname',
- 'uid','demo_dev.dqmatch_name', 'ENUSA')) by teradata;
+('Name', '100','demo_data.dupe_customers', 'Fullname',
+ 'uid','demo_data.dqmatch_name', 'ENUSA')) by td;
  
 /* 
 now check the address
@@ -146,10 +107,10 @@ now check the address
  
 execute (
 call sas_sysfnlib.dq_match
-('Address', '100','demo_dev.dupe_customers', 'streetaddress',
- 'uid','demo_dev.dqmatch_address', 'ENUSA')) by teradata;
+('Address', '100','demo_data.dupe_customers', 'streetaddress',
+ 'uid','demo_data.dqmatch_address', 'ENUSA')) by td;
 
- disconnect from teradata;
+ disconnect from td;
  
  run;
  
@@ -206,16 +167,16 @@ run;
 so lets standardise the state codes
 */
 proc sql;
-connect to teradata(&idconn);
+connect using td_demo as td;
 execute (
           call sas_sysfnlib.dq_standardize(
           'State/Province (Abbreviation)',
-          'demo_dev.master_customer_list',
+          'demo_data.master_customer_list',
           'state',
           'cid',
-          'demo_dev.cust_state_std',
+          'demo_data.cust_state_std',
           'ENUSA')
-        ) by teradata;
+        ) by td;
         
 quit;
 
@@ -231,16 +192,16 @@ now lets work out the gender information
 */
 
 proc sql;
-connect to teradata(&idconn);
+connect using td_demo as td;
 execute (
           call sas_sysfnlib.dq_gender(
           'Name',
-          'demo_dev.master_customer_list',
+          'demo_data.master_customer_list',
           'fullname',
           'cid',
-          'demo_dev.cust_gend',
+          'demo_data.cust_gend',
           'ENUSA')
-        ) by teradata;
+        ) by td;
         
 quit;
 
@@ -258,13 +219,12 @@ run;
 
 
 /*
-now lets look at the transaction information
+now lets look at the transaction informatio
 */
 
 proc sql;
 select count(*) from td_demo.&txn_tbl;
 run;
-
 
 /* 3.6B rows in 12m*/
 
@@ -272,22 +232,17 @@ proc print data=td_demo.&txn_tbl;
 where txn_date between '12Dec2018'd and '14Dec2018'd and custid between 12368 and 12370;
 run;
 
-/* lets have a quick profile by channel*/
-
-proc freq data=td_demo.@&txn_tbl;
-tables channel;
-run;
-
 /*
 now lets roll this up to one row per customer per day
-Probably won't run this during demo as it takes 7+ minutes
+Probably won't run this during demo as it takes ~5 minutes
 execute.
 Don't drop the table, just start from next step
-*/
+
 proc sql;
-connect to teradata (&idconn);
-execute (create table demo_dev.txn_pvt as ( 
-select * from demo_dev.&txn_tbl pivot( sum(txn_count) as txn_c, sum(txn_amt) as txn_a
+connect to teradata (server=barbera user=sasdemo 
+password='{SAS002}835DA5352D5AE01B196D396B1920462032A1731E' mode=teradata);
+execute (create table demo_data.txn_pvt as ( 
+select * from demo_data.&txn_tbl pivot( sum(txn_count) as txn_c, sum(txn_amt) as txn_a
 for channel in (
 'X' as X,
 'T' as T,
@@ -304,9 +259,13 @@ disconnect from teradata;
 run;
 
 
-/*
+
 now lets extract the month from the txn date column
 */
+
+proc print data=td_demo.txn_pvt (obs=100);
+run;
+
 
 proc sql;
 insert into td_demo.txn_pvt_mnth
@@ -333,11 +292,12 @@ month(txn_date),
       Z_txn_a 
 from td_demo.txn_pvt;
 run;
-     
+ 
+ 
 /*
 now let roll up to customer level
 and calculate the totals of the counts and amounts
-by month by channel
+by month
 so end up with 1M rows
 */
      
@@ -402,8 +362,8 @@ proc ds2 ds2accel=yes ;
 
 	method run(); 
   	  set td_demo.txn_pvt_mnth;    /* read data in from txn_pvt_mnth table in TD */ 
-      by custid;                   /* the role up level */
-  	  if first.custid then         /* for each new id clear out the arrays as these are reused */
+      by custid;              /* the role up level */
+  	  if first.custid then    /* for each new id clear out the arrays as these are reused */
         clear_arrays(); 
         TX_c[mnth]=X_txn_c+TX_c[mnth];  /* for each month create the totals */
 		TT_c[mnth]=T_txn_c+TT_c[mnth];
@@ -433,8 +393,8 @@ proc ds2 ds2accel=yes ;
 
   /* Execute the DS2 we wrote above */
   data td_demo.txn_pvt_cust;         /* results are going into a teradata table*/
-    dcl thread p_thread p;           /* instance of the thread */
-    method run();                    /* call the run method we created above */
+    dcl thread p_thread p; /* instance of the thread */
+    method run();          /* call the run method we created above */
       set from p;
       output;
     end;
@@ -444,7 +404,7 @@ run;
 quit;
 
 proc print data=td_demo.txn_pvt_cust;
-where custid between 12368 and 12468;
+where custid between 12368 and 12378;
 run;
 
 /*
@@ -710,7 +670,7 @@ other='extreme';
 run;
     
 /*needed for format publish macro */
-%let indconn=server=mytd user=me password=mypass database=demo_dev;
+%let indconn=server=barbera user=sasdemo password='{SAS002}835DA5352D5AE01B196D396B1920462032A1731E' database=demo_data;
 
 /* now publish this format to the database */
 
@@ -719,7 +679,7 @@ run;
 
 /*now send the formats to the DB as VDFs*/
 %indtd_publish_formats (fmtcat=work, 
-database=demodb, 
+database=demo_data, 
 fmttable=sas_formats, 
 action=replace, 
 mode=protected);
@@ -737,6 +697,10 @@ format TX_a1-TX_a12 txn_amt_band.;
 tables TX_a1-TX_a12 * gender;
 run;
 
+proc means data=td_demo.ads_prelim;
+class state;
+var TZ_a1-TZ_a12;
+run;
 
 /*
 lets see if there is any significant correlation
@@ -751,16 +715,13 @@ run;
 
 /* when using EP, indconn MUST have database defined, even if we overwrite it later*/
 
-%let indconn= server=mytd user=me password=mypass database=demo_dev;
-
-/*EM model 
-  read data -> HPCLUS (5 clusters)->Score ->Score Export
+%let indconn= server=barbera user=sasdemo password='{SAS002}835DA5352D5AE01B196D396B1920462032A1731E' database=demo_data;
 
 /* publish SA code */
 %indtdpm;
 
 %indtd_create_modeltable(
-database=demo_dev,
+database=demo_data,
 modeltable=clustering_models,
 action=replace);
 
@@ -776,10 +737,10 @@ proc sql noerrorstop;
 connect to teradata (&indconn mode=teradata);
 execute (
 call sas_sysfnlib.sas_score_ep 
-                       ( 'MODELTABLE=demo_dev.clustering_models',
+                       ( 'MODELTABLE=demo_data.clustering_models',
                          'MODELNAME=MasterCustomers',
-                         'INQUERY=demo_dev.ads_prelim',
-                         'OUTTABLE=demo_dev.master_customer_clustered',
+                         'INQUERY=demo_data.ads_prelim',
+                         'OUTTABLE=demo_data.master_customer_clustered',
                          'OUTKEY=custid',
                          'OPTIONS=VOLATILE=NO;UNIQUE=YES;DIRECT=YES;'
                         )
@@ -796,4 +757,10 @@ quit;
 proc freq data=td_demo.master_customer_clustered;
 tables _CLUSTER_ID_;
 run;
+
+proc means data=td_demo.master_customer_clustered;
+class _CLUSTER_ID_;
+run;
+
+
 ```
