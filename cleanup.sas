@@ -43,13 +43,18 @@ execute(commit) by td;
 disconnect from td;
 
 run;
+
+/*
 proc sql;
 connect using td_demo as td;
-/*execute(drop table demo_data.txn_pvt) by td;
-execute(commit) by td;*/
+execute(drop table demo_data.txn_pvt) by td;
+execute(commit) by td;
 disconnect from td;
 
 run;
+*/
+
+
 proc sql;
 connect using td_demo as td;
 execute(delete from demo_data.txn_pvt_mnth) by td;
@@ -57,9 +62,17 @@ execute(commit) by td;
 disconnect from td;
 
 run;
+
 proc sql;
 connect using td_demo as td;
-execute(drop view demo_data.master_customer_clustered by td;
+execute(drop table demo_data.txn_pvt_cust) by td;
+execute(commit) by td;
+disconnect from td;
+
+run;
+proc sql;
+connect using td_demo as td;
+execute(drop table demo_data.master_customer_clustered) by td;
 execute(commit) by td;
 disconnect from td;
 
@@ -71,13 +84,13 @@ execute(commit) by td;
 disconnect from td;
 
 run;
-
 proc sql;
 connect using td_demo as td;
-execute(delete from demo_data.master_customer_clustered) by td;
+execute (drop view demo_data.ads_prelim) by td;
 execute(commit) by td;
 disconnect from td;
 
 run;
+
 
 libname td_demo clear;
